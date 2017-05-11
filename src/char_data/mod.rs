@@ -9,8 +9,7 @@
 
 //! Accessor for `Bidi_Class` property from Unicode Character Database (UCD)
 
-// TODO: Make private after dropping deprecated call
-pub mod tables;
+mod tables;
 
 pub use self::tables::{BidiClass, UNICODE_VERSION};
 
@@ -46,7 +45,7 @@ fn bsearch_range_value_table(c: char, r: &'static [(char, char, BidiClass)]) -> 
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     #[test]
