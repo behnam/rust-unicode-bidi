@@ -79,6 +79,7 @@ pub mod deprecated;
 pub mod format_chars;
 pub mod level;
 
+mod brackets;
 mod char_data;
 mod explicit;
 mod implicit;
