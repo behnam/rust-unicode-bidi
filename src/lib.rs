@@ -82,6 +82,7 @@ mod char_data;
 mod explicit;
 mod implicit;
 mod prepare;
+mod string_property;
 
 pub use char_data::{bidi_class, BidiClass, UNICODE_VERSION};
 pub use level::{Level, LTR_LEVEL, RTL_LEVEL};
@@ -89,11 +90,11 @@ pub use prepare::LevelRun;
 
 use std::borrow::Cow;
 use std::cmp::{max, min};
-use std::iter::repeat;
 use std::ops::Range;
 
 use BidiClass::*;
 use format_chars as chars;
+use string_property::StringProperty;
 
 
 /// Bidi information about a single paragraph
@@ -120,7 +121,7 @@ pub struct InitialInfo<'text> {
 
     /// The BidiClass of the character at each byte in the text.
     /// If a character is multiple bytes, its class will appear multiple times in the vector.
-    pub original_classes: Vec<BidiClass>,
+    pub original_classes: StringProperty<'text, BidiClass>,
 
     /// The boundaries and level of each paragraph within the text.
     pub paragraphs: Vec<ParagraphInfo>,
@@ -136,7 +137,7 @@ impl<'text> InitialInfo<'text> {
     /// remain FSI, and it's up to later stages to treat these as LRI when needed.
     #[cfg_attr(feature = "flame_it", flame)]
     pub fn new(text: &str, default_para_level: Option<Level>) -> InitialInfo {
-        let mut original_classes = Vec::with_capacity(text.len());
+        let mut original_classes = StringProperty::new(text, BidiClass::default());
 
         // The stack contains the starting byte index for each nested isolate we're inside.
         let mut isolate_stack = Vec::new();
@@ -154,7 +155,7 @@ impl<'text> InitialInfo<'text> {
             #[cfg(feature = "flame_it")]
             flame::start("original_classes.extend()");
 
-            original_classes.extend(repeat(class).take(c.len_utf8()));
+            original_classes.set(i, c, class);
 
             #[cfg(feature = "flame_it")]
             flame::end("original_classes.extend()");
@@ -181,13 +182,14 @@ impl<'text> InitialInfo<'text> {
                 L | R | AL => {
                     match isolate_stack.last() {
                         Some(&start) => {
-                            if original_classes[start] == FSI {
+                            if original_classes.get(start) == FSI {
                                 // X5c. If the first strong character between FSI and its matching
                                 // PDI is R or AL, treat it as RLI. Otherwise, treat it as LRI.
-                                for j in 0..chars::FSI.len_utf8() {
-                                    original_classes[start + j] =
-                                        if class == L { LRI } else { RLI };
-                                }
+                                original_classes.set(
+                                    start,
+                                    chars::FSI,
+                                    if class == L { LRI } else { RLI },
+                                );
                             }
                         }
 
@@ -219,7 +221,6 @@ impl<'text> InitialInfo<'text> {
                 level: para_level.unwrap_or(LTR_LEVEL),
             });
         }
-        assert_eq!(original_classes.len(), text.len());
 
         #[cfg(feature = "flame_it")]
         flame::end("InitialInfo::new(): iter text.char_indices()");
@@ -237,17 +238,16 @@ impl<'text> InitialInfo<'text> {
 /// The `original_classes` and `levels` vectors are indexed by byte offsets into the text.  If a
 /// character is multiple bytes wide, then its class and level will appear multiple times in these
 /// vectors.
-// TODO: Impl `struct StringProperty<T> { values: Vec<T> }` and use instead of Vec<T>
 #[derive(Debug, PartialEq)]
 pub struct BidiInfo<'text> {
     /// The text
     pub text: &'text str,
 
     /// The BidiClass of the character at each byte in the text.
-    pub original_classes: Vec<BidiClass>,
+    pub original_classes: StringProperty<'text, BidiClass>,
 
     /// The directional embedding level of each byte in the text.
-    pub levels: Vec<Level>,
+    pub levels: StringProperty<'text, Level>,
 
     /// The boundaries and paragraph embedding level of each paragraph within the text.
     ///
@@ -271,12 +271,13 @@ impl<'text> BidiInfo<'text> {
             ..
         } = InitialInfo::new(text, default_para_level);
 
+        //XXX
         let mut levels = Vec::<Level>::with_capacity(text.len());
-        let mut processing_classes = original_classes.clone();
+        let mut processing_classes = original_classes.get_all().to_owned();
 
         for para in &paragraphs {
             let text = &text[para.range.clone()];
-            let original_classes = &original_classes[para.range.clone()];
+            let original_classes = &original_classes.get_range(para.range.clone());
             let processing_classes = &mut processing_classes[para.range.clone()];
 
             let new_len = levels.len() + para.range.len();
@@ -305,7 +306,7 @@ impl<'text> BidiInfo<'text> {
             text,
             original_classes,
             paragraphs,
-            levels,
+            levels: StringProperty::from_values(text, levels),
         }
     }
 
@@ -373,7 +374,7 @@ impl<'text> BidiInfo<'text> {
         let mut reset_from: Option<usize> = Some(0);
         let mut reset_to: Option<usize> = None;
         for (i, c) in line_str.char_indices() {
-            match self.original_classes[i] {
+            match self.original_classes.get(i) {
                 // Ignored by X9
                 RLE | LRE | RLO | LRO | PDF | BN => {}
                 // Segment separator, Paragraph separator
@@ -415,7 +416,10 @@ impl<'text> BidiInfo<'text> {
         let mut min_level = run_level;
         let mut max_level = run_level;
 
-        for (i, &new_level) in levels.iter().enumerate().take(line.end).skip(start + 1) {
+        for (i, &new_level) in levels.values.iter().enumerate().take(line.end).skip(
+            start + 1,
+        )
+        {
             if new_level != run_level {
                 // End of the previous run, start of a new one.
                 runs.push(start..i);
@@ -439,7 +443,7 @@ impl<'text> BidiInfo<'text> {
             // Look for the start of a sequence of consecutive runs of max_level or higher.
             let mut seq_start = 0;
             while seq_start < run_count {
-                if self.levels[runs[seq_start].start] < max_level {
+                if self.levels.values[runs[seq_start].start] < max_level {
                     seq_start += 1;
                     continue;
                 }
@@ -447,7 +451,7 @@ impl<'text> BidiInfo<'text> {
                 // Found the start of a sequence. Now find the end.
                 let mut seq_end = seq_start + 1;
                 while seq_end < run_count {
-                    if self.levels[runs[seq_end].start] < max_level {
+                    if self.levels.values[runs[seq_end].start] < max_level {
                         break;
                     }
                     seq_end += 1;
@@ -463,7 +467,7 @@ impl<'text> BidiInfo<'text> {
                 .expect("Lowering embedding level below zero");
         }
 
-        (levels, runs)
+        (levels.values, runs)
     }
 
     /// If processed text has any computed RTL levels
@@ -471,7 +475,7 @@ impl<'text> BidiInfo<'text> {
     /// This information is usually used to skip re-ordering of text when no RTL level is present
     #[inline]
     pub fn has_rtl(&self) -> bool {
-        level::has_rtl(&self.levels)
+        level::has_rtl(self.levels.get_all())
     }
 }
 
@@ -500,7 +504,7 @@ mod tests {
             InitialInfo::new(text, None),
             InitialInfo {
                 text,
-                original_classes: vec![L, EN],
+                original_classes: StringProperty::from_values(text, vec![L, EN]),
                 paragraphs: vec![
                     ParagraphInfo {
                         range: 0..2,
@@ -515,7 +519,7 @@ mod tests {
             InitialInfo::new(text, None),
             InitialInfo {
                 text,
-                original_classes: vec![AL, AL, WS, R, R],
+                original_classes: StringProperty::from_values(text, vec![AL, AL, WS, R, R]),
                 paragraphs: vec![
                     ParagraphInfo {
                         range: 0..5,
@@ -530,7 +534,7 @@ mod tests {
             InitialInfo::new(text, None),
             InitialInfo {
                 text,
-                original_classes: vec![L, B, B, B, L],
+                original_classes: StringProperty::from_values(text, vec![L, B, B, B, L]),
                 paragraphs: vec![
                     ParagraphInfo {
                         range: 0..4,
@@ -549,7 +553,10 @@ mod tests {
             InitialInfo::new(&text, None),
             InitialInfo {
                 text: &text,
-                original_classes: vec![RLI, RLI, RLI, R, R, PDI, PDI, PDI, L],
+                original_classes: StringProperty::from_values(
+                    &text,
+                    vec![RLI, RLI, RLI, R, R, PDI, PDI, PDI, L],
+                ),
                 paragraphs: vec![
                     ParagraphInfo {
                         range: 0..9,
@@ -567,8 +574,8 @@ mod tests {
             BidiInfo::new(text, Some(LTR_LEVEL)),
             BidiInfo {
                 text,
-                levels: Level::vec(&[0, 0, 0, 0, 0, 0]),
-                original_classes: vec![L, L, L, EN, EN, EN],
+                levels: StringProperty::from_values(text, Level::vec(&[0, 0, 0, 0, 0, 0])),
+                original_classes: StringProperty::from_values(text, vec![L, L, L, EN, EN, EN]),
                 paragraphs: vec![
                     ParagraphInfo {
                         range: 0..6,
@@ -583,8 +590,14 @@ mod tests {
             BidiInfo::new(text, Some(LTR_LEVEL)),
             BidiInfo {
                 text,
-                levels: Level::vec(&[0, 0, 0, 0, 1, 1, 1, 1, 1, 1]),
-                original_classes: vec![L, L, L, WS, R, R, R, R, R, R],
+                levels: StringProperty::from_values(
+                    text,
+                    Level::vec(&[0, 0, 0, 0, 1, 1, 1, 1, 1, 1]),
+                ),
+                original_classes: StringProperty::from_values(
+                    &text,
+                    vec![L, L, L, WS, R, R, R, R, R, R],
+                ),
                 paragraphs: vec![
                     ParagraphInfo {
                         range: 0..10,
@@ -597,8 +610,14 @@ mod tests {
             BidiInfo::new(text, Some(RTL_LEVEL)),
             BidiInfo {
                 text,
-                levels: Level::vec(&[2, 2, 2, 1, 1, 1, 1, 1, 1, 1]),
-                original_classes: vec![L, L, L, WS, R, R, R, R, R, R],
+                levels: StringProperty::from_values(
+                    text,
+                    Level::vec(&[2, 2, 2, 1, 1, 1, 1, 1, 1, 1]),
+                ),
+                original_classes: StringProperty::from_values(
+                    &text,
+                    vec![L, L, L, WS, R, R, R, R, R, R],
+                ),
                 paragraphs: vec![
                     ParagraphInfo {
                         range: 0..10,
@@ -613,8 +632,14 @@ mod tests {
             BidiInfo::new(text, Some(LTR_LEVEL)),
             BidiInfo {
                 text,
-                levels: Level::vec(&[1, 1, 1, 1, 1, 1, 0, 0, 0, 0]),
-                original_classes: vec![R, R, R, R, R, R, WS, L, L, L],
+                levels: StringProperty::from_values(
+                    text,
+                    Level::vec(&[1, 1, 1, 1, 1, 1, 0, 0, 0, 0]),
+                ),
+                original_classes: StringProperty::from_values(
+                    &text,
+                    vec![R, R, R, R, R, R, WS, L, L, L],
+                ),
                 paragraphs: vec![
                     ParagraphInfo {
                         range: 0..10,
@@ -627,8 +652,14 @@ mod tests {
             BidiInfo::new(text, None),
             BidiInfo {
                 text,
-                levels: Level::vec(&[1, 1, 1, 1, 1, 1, 1, 2, 2, 2]),
-                original_classes: vec![R, R, R, R, R, R, WS, L, L, L],
+                levels: StringProperty::from_values(
+                    text,
+                    Level::vec(&[1, 1, 1, 1, 1, 1, 1, 2, 2, 2]),
+                ),
+                original_classes: StringProperty::from_values(
+                    &text,
+                    vec![R, R, R, R, R, R, WS, L, L, L],
+                ),
                 paragraphs: vec![
                     ParagraphInfo {
                         range: 0..10,
@@ -643,8 +674,14 @@ mod tests {
             BidiInfo::new(text, Some(LTR_LEVEL)),
             BidiInfo {
                 text,
-                levels: Level::vec(&[1, 1, 2, 1, 1, 1, 1, 1, 2, 1, 1]),
-                original_classes: vec![AL, AL, EN, AL, AL, WS, R, R, EN, R, R],
+                levels: StringProperty::from_values(
+                    text,
+                    Level::vec(&[1, 1, 2, 1, 1, 1, 1, 1, 2, 1, 1]),
+                ),
+                original_classes: StringProperty::from_values(
+                    &text,
+                    vec![AL, AL, EN, AL, AL, WS, R, R, EN, R, R],
+                ),
                 paragraphs: vec![
                     ParagraphInfo {
                         range: 0..11,
@@ -659,8 +696,8 @@ mod tests {
             BidiInfo::new(text, None),
             BidiInfo {
                 text,
-                original_classes: vec![L, WS, R, R, CS, B, R, R],
-                levels: Level::vec(&[0, 0, 1, 1, 0, 0, 1, 1]),
+                original_classes: StringProperty::from_values(text, vec![L, WS, R, R, CS, B, R, R]),
+                levels: StringProperty::from_values(text, Level::vec(&[0, 0, 1, 1, 0, 0, 1, 1])),
                 paragraphs: vec![
                     ParagraphInfo {
                         range: 0..6,
@@ -676,7 +713,10 @@ mod tests {
 
         // BidiTest:69635 (AL ET EN)
         let bidi_info = BidiInfo::new("\u{060B}\u{20CF}\u{06F9}", None);
-        assert_eq!(bidi_info.original_classes, vec![AL, AL, ET, ET, ET, EN, EN]);
+        assert_eq!(
+            bidi_info.original_classes.get_all(),
+            &[AL, AL, ET, ET, ET, EN, EN]
+        );
     }
 
     #[test]

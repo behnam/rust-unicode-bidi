@@ -41,6 +41,12 @@ pub enum BidiClass {
     WS,
 }
 
+impl Default for BidiClass {
+    fn default() -> BidiClass {
+        BidiClass::BN // same as default ignorables, non-characters, and control characters
+    }
+}
+
 use self::BidiClass::*;
 pub const bidi_class_table: &[(char, char, BidiClass)] = &[
     ('\u{0}', '\u{8}', BN), ('\u{9}', '\u{9}', S), ('\u{a}', '\u{a}', B), ('\u{b}', '\u{b}', S),
