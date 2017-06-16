@@ -67,6 +67,8 @@ extern crate serde_derive;
 #[cfg(all(feature = "with_serde", test))]
 extern crate serde_test;
 
+extern crate flame;
+
 pub mod deprecated;
 pub mod format_chars;
 pub mod level;
