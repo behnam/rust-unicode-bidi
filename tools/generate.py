@@ -152,7 +152,7 @@ def emit_table(
     file_,
     t_name,
     t_data,
-    t_type = "&'static [(char, char)]",
+    t_type = "&[(char, char)]",
     is_pub=True,
     pfun=lambda x: "(%s,%s)" % (escape_char(x[0]), escape_char(x[1]))
 ):
@@ -193,7 +193,7 @@ use self::BidiClass::*;
         file_,
         "bidi_class_table",
         bidi_class_table,
-        "&'static [(char, char, BidiClass)]",
+        "&[(char, char, BidiClass)]",
         pfun=lambda x: "(%s,%s,%s)" % (escape_char(x[0]), escape_char(x[1]), x[2]),
     )
 
