@@ -11,7 +11,7 @@
 
 extern crate unicode_bidi;
 
-use unicode_bidi::{bidi_class, BidiInfo, format_chars, level, Level};
+use unicode_bidi::{bidi_class, format_chars, level, BidiInfo, Level};
 
 #[derive(Debug)]
 struct Fail {
@@ -112,14 +112,14 @@ fn test_basic_conformance() {
         // TODO: Show a list of failed cases when the number is less than 1K
         panic!(
             "{} test cases failed! ({} passed) {{\n\
-            \n\
-            0: {:?}\n\
-            \n\
-            ...\n\
-            \n\
-            {}: {:?}\n\
-            \n\
-            }}",
+             \n\
+             0: {:?}\n\
+             \n\
+             ...\n\
+             \n\
+             {}: {:?}\n\
+             \n\
+             }}",
             fails.len(),
             passed_num,
             fails[0],
@@ -206,14 +206,14 @@ fn test_character_conformance() {
         // TODO: Show a list of failed cases when the number is less than 1K
         panic!(
             "{} test cases failed! ({} passed) {{\n\
-            \n\
-            0: {:?}\n\
-            \n\
-            ...\n\
-            \n\
-            {}: {:?}\n\
-            \n\
-            }}",
+             \n\
+             0: {:?}\n\
+             \n\
+             ...\n\
+             \n\
+             {}: {:?}\n\
+             \n\
+             }}",
             fails.len(),
             passed_num,
             fails[0],
@@ -295,8 +295,7 @@ fn test_gen_char_from_bidi_class() {
         RLO,
         S,
         WS,
-    ]
-    {
+    ] {
         let class_name = format!("{:?}", class);
         let sample_char = gen_char_from_bidi_class(&class_name);
         assert_eq!(bidi_class(sample_char), class);

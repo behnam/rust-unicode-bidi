@@ -13,7 +13,7 @@ mod tables;
 
 pub use self::tables::{BidiClass, UNICODE_VERSION};
 
-use std::cmp::Ordering::{Equal, Less, Greater};
+use std::cmp::Ordering::{Equal, Greater, Less};
 use std::char;
 
 use self::tables::bidi_class_table;

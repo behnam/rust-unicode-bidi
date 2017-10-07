@@ -56,9 +56,8 @@
 //! [tr9]: <http://www.unicode.org/reports/tr9/>
 
 #![forbid(unsafe_code)]
-
-#![cfg_attr(feature="flame_it", feature(plugin, custom_attribute))]
-#![cfg_attr(feature="flame_it", plugin(flamer))]
+#![cfg_attr(feature = "flame_it", feature(plugin, custom_attribute))]
+#![cfg_attr(feature = "flame_it", plugin(flamer))]
 
 
 #[macro_use]
@@ -84,7 +83,7 @@ mod explicit;
 mod implicit;
 mod prepare;
 
-pub use char_data::{BidiClass, bidi_class, UNICODE_VERSION};
+pub use char_data::{bidi_class, BidiClass, UNICODE_VERSION};
 pub use level::{Level, LTR_LEVEL, RTL_LEVEL};
 pub use prepare::LevelRun;
 
@@ -146,19 +145,21 @@ impl<'text> InitialInfo<'text> {
         let mut para_start = 0;
         let mut para_level = default_para_level;
 
-        #[cfg(feature = "flame_it")] flame::start("InitialInfo::new(): iter text.char_indices()");
+        #[cfg(feature = "flame_it")]
+        flame::start("InitialInfo::new(): iter text.char_indices()");
 
         for (i, c) in text.char_indices() {
             let class = bidi_class(c);
 
-            #[cfg(feature = "flame_it")] flame::start("original_classes.extend()");
+            #[cfg(feature = "flame_it")]
+            flame::start("original_classes.extend()");
 
             original_classes.extend(repeat(class).take(c.len_utf8()));
 
-            #[cfg(feature = "flame_it")] flame::end("original_classes.extend()");
+            #[cfg(feature = "flame_it")]
+            flame::end("original_classes.extend()");
 
             match class {
-
                 B => {
                     // P1. Split the text into separate paragraphs. The paragraph separator is kept
                     // with the previous paragraph.
@@ -220,7 +221,8 @@ impl<'text> InitialInfo<'text> {
         }
         assert_eq!(original_classes.len(), text.len());
 
-        #[cfg(feature = "flame_it")] flame::end("InitialInfo::new(): iter text.char_indices()");
+        #[cfg(feature = "flame_it")]
+        flame::end("InitialInfo::new(): iter text.char_indices()");
 
         InitialInfo {
             text,
@@ -383,11 +385,9 @@ impl<'text> BidiInfo<'text> {
                     }
                 }
                 // Whitespace, isolate formatting
-                WS | FSI | LRI | RLI | PDI => {
-                    if reset_from == None {
-                        reset_from = Some(i);
-                    }
-                }
+                WS | FSI | LRI | RLI | PDI => if reset_from == None {
+                    reset_from = Some(i);
+                },
                 _ => {
                     reset_from = None;
                 }
@@ -458,9 +458,9 @@ impl<'text> BidiInfo<'text> {
 
                 seq_start = seq_end;
             }
-            max_level.lower(1).expect(
-                "Lowering embedding level below zero",
-            );
+            max_level
+                .lower(1)
+                .expect("Lowering embedding level below zero");
         }
 
         (levels, runs)
@@ -811,7 +811,6 @@ mod tests {
 
     #[test]
     fn test_reordered_levels() {
-
         /// BidiTest:946 (LRI PDI)
         let text = "\u{2067}\u{2069}";
         assert_eq!(
@@ -849,7 +848,7 @@ mod tests {
 
 #[cfg(all(feature = "serde", test))]
 mod serde_tests {
-    use serde_test::{Token, assert_tokens};
+    use serde_test::{assert_tokens, Token};
     use super::*;
 
     #[test]

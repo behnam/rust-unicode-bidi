@@ -38,9 +38,11 @@ pub fn resolve_weak(sequence: &IsolatingRunSequence, processing_classes: &mut [B
     fn id(x: LevelRun) -> LevelRun {
         x
     }
-    let mut indices = sequence.runs.iter().cloned().flat_map(
-        id as fn(LevelRun) -> LevelRun,
-    );
+    let mut indices = sequence
+        .runs
+        .iter()
+        .cloned()
+        .flat_map(id as fn(LevelRun) -> LevelRun);
 
     while let Some(i) = indices.next() {
         match processing_classes[i] {
@@ -86,11 +88,9 @@ pub fn resolve_weak(sequence: &IsolatingRunSequence, processing_classes: &mut [B
                     _ => et_run_indices.push(i), // In case this is followed by an EN.
                 }
             }
-            class => {
-                if removed_by_x9(class) {
-                    continue;
-                }
-            }
+            class => if removed_by_x9(class) {
+                continue;
+            },
         }
 
         prev_class = processing_classes[i];
@@ -182,8 +182,15 @@ pub fn resolve_neutral(
             // <http://www.unicode.org/reports/tr9/#N2>
             let new_class = match (prev_class, next_class) {
                 (L, L) => L,
-                (R, R) | (R, AN) | (R, EN) | (AN, R) | (AN, AN) | (AN, EN) | (EN, R) |
-                (EN, AN) | (EN, EN) => R,
+                (R, R) |
+                (R, AN) |
+                (R, EN) |
+                (AN, R) |
+                (AN, AN) |
+                (AN, EN) |
+                (EN, R) |
+                (EN, AN) |
+                (EN, EN) => R,
                 (_, _) => e,
             };
             for j in &ni_run {
